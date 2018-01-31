@@ -41,6 +41,14 @@ header.masthead hr
 }
 header.masthead h1{font-size:2rem}
 header.masthead p{font-weight:300}
+body {
+  padding-top: 54px;
+}
+@media (min-width: 992px) {
+  body {
+    padding-top: 20px;
+  }
+}
 @media (min-width:768px){header.masthead p{font-size:1.15rem}}
 @media (min-width:992px){header.masthead{height:100vh;min-height:650px;padding-top:0;padding-bottom:0}header.masthead h1{font-size:3rem}}
 @media (min-width:1200px){header.masthead h1{font-size:4rem}}
@@ -113,7 +121,6 @@ header.masthead p{font-weight:300}
 .btn-primary:active,.btn-primary:focus,
 .btn-primary:hover{color:#fff;background-color:#ee4b28!important}
 .btn-primary:active,.btn-primary:focus{box-shadow:0 0 0 .2rem rgba(240,95,64,.5)!important}
-
 
 
 .portfolio-item {
