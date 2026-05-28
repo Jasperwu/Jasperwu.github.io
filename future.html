@@ -135,11 +135,29 @@
       <p id="wildcardText"></p>
     </div>
 
+    <!-- evidence: real-time signals crawled from the last 3 days -->
+    <div class="evidence">
+      <div class="ev-card" id="newsCard" hidden>
+        <p class="ev-title">📰 過去 3 天新聞 · GDELT</p>
+        <div class="ev-list" id="newsList"></div>
+      </div>
+      <div class="ev-card" id="buzzCard" hidden>
+        <p class="ev-title">💬 社群討論 · Hacker News</p>
+        <div class="ev-list" id="buzzList"></div>
+      </div>
+      <div class="ev-card" id="wikiCard" hidden>
+        <p class="ev-title">📈 關注度趨勢 · Wikipedia</p>
+        <div class="wiki-body" id="wikiBody"></div>
+      </div>
+    </div>
+
     <!-- market source -->
     <div class="market-source" id="marketSource" hidden>
       <p class="market-source-title">📊 即時佐證 · Polymarket 預測市場</p>
       <div class="market-list" id="marketList"></div>
     </div>
+
+    <p class="sources-foot" id="claudeSources" hidden></p>
   </section>
 
   <!-- Settings modal -->
@@ -158,6 +176,10 @@
           <option value="claude-opus-4-7">Claude Opus 4.7（最強 · 較貴）</option>
           <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5（最便宜 · 最快）</option>
         </select>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="webSearchToggle" checked />
+        <span>讓 Claude 自主上網搜尋查證（web search，每次預測約多花幾美分）</span>
       </label>
       <div class="modal-actions">
         <button class="btn-ghost" id="clearKey">清除金鑰</button>

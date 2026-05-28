@@ -9,7 +9,12 @@
 
   const LS_KEY = 'oracle_api_key';
   const LS_MODEL = 'oracle_model';
+  const LS_WEBSEARCH = 'oracle_websearch';
   const GAMMA = 'https://gamma-api.polymarket.com/markets';
+  const GDELT = 'https://api.gdeltproject.org/api/v2/doc/doc';
+  const HN = 'https://hn.algolia.com/api/v1/search_by_date';
+  const WIKI_SEARCH = 'https://en.wikipedia.org/w/api.php';
+  const WIKI_VIEWS = 'https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/all-agents';
   const ANTHROPIC = 'https://api.anthropic.com/v1/messages';
 
   const $ = (id) => document.getElementById(id);
@@ -34,11 +39,19 @@
     wildcardText: $('wildcardText'),
     marketSource: $('marketSource'),
     marketList: $('marketList'),
+    newsCard: $('newsCard'),
+    newsList: $('newsList'),
+    buzzCard: $('buzzCard'),
+    buzzList: $('buzzList'),
+    wikiCard: $('wikiCard'),
+    wikiBody: $('wikiBody'),
+    claudeSources: $('claudeSources'),
     // modal
     openSettings: $('openSettings'),
     modalBackdrop: $('modalBackdrop'),
     apiKeyInput: $('apiKeyInput'),
     modelSelect: $('modelSelect'),
+    webSearchToggle: $('webSearchToggle'),
     saveKey: $('saveKey'),
     clearKey: $('clearKey'),
   };
@@ -46,6 +59,7 @@
   /* ---------- key storage ---------- */
   const getKey = () => localStorage.getItem(LS_KEY) || '';
   const getModel = () => localStorage.getItem(LS_MODEL) || 'claude-sonnet-4-6';
+  const getWebSearch = () => localStorage.getItem(LS_WEBSEARCH) !== '0';
 
   function refreshByokNote() {
     if (getKey()) {
@@ -61,6 +75,7 @@
   function openModal() {
     el.apiKeyInput.value = getKey();
     el.modelSelect.value = getModel();
+    el.webSearchToggle.checked = getWebSearch();
     el.modalBackdrop.hidden = false;
   }
   function closeModal() { el.modalBackdrop.hidden = true; }
@@ -73,6 +88,7 @@
     const k = el.apiKeyInput.value.trim();
     if (k) localStorage.setItem(LS_KEY, k); else localStorage.removeItem(LS_KEY);
     localStorage.setItem(LS_MODEL, el.modelSelect.value);
+    localStorage.setItem(LS_WEBSEARCH, el.webSearchToggle.checked ? '1' : '0');
     refreshByokNote();
     closeModal();
   });
@@ -107,10 +123,11 @@
   /* ---------- status cycling ---------- */
   const STATUS_STEPS = [
     ['正在召喚神諭…', '凝視水晶球'],
-    ['聆聽市場的低語…', '讀取 Polymarket 即時機率'],
-    ['解析社群訊號…', 'Reddit · 社群討論 · 新聞趨勢'],
-    ['以 futurist 之眼推演…', '對齊 3–18 個月的時間錐'],
-    ['編織可能的未來…', '即將顯現'],
+    ['爬取過去 3 天的事件…', 'GDELT 全球新聞'],
+    ['聆聽社群的低語…', 'Hacker News 討論 · Wikipedia 關注度'],
+    ['讀取市場的賠率…', 'Polymarket 即時機率'],
+    ['以 futurist 之眼推演…', 'Claude 自主上網查證中'],
+    ['編織可能的未來…', '對齊 3–18 個月的時間錐'],
   ];
   let statusTimer = null;
   function startStatusCycle() {
@@ -168,22 +185,141 @@
     });
   }
 
+  /* ---------- GDELT: last 3 days of global news ---------- */
+  async function fetchGdelt(keyword) {
+    // multi-word queries must be quoted for GDELT phrase search
+    const q = /\s/.test(keyword.trim()) ? `"${keyword.trim()}"` : keyword.trim();
+    const url = `${GDELT}?query=${encodeURIComponent(q)}&mode=ArtList&timespan=3d` +
+                `&sort=DateDesc&maxrecords=20&format=json`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const text = await res.text();
+      if (!text.trim().startsWith('{')) return []; // GDELT returns plain-text errors
+      const data = JSON.parse(text);
+      const seen = new Set();
+      return (data.articles || []).filter((a) => {
+        if (seen.has(a.title)) return false;
+        seen.add(a.title);
+        return true;
+      }).slice(0, 8).map((a) => ({
+        title: a.title,
+        url: a.url,
+        domain: a.domain,
+        date: a.seendate, // e.g. 20260525T120000Z
+      }));
+    } catch { return []; }
+  }
+
+  /* ---------- Hacker News: recent community discussion ---------- */
+  async function fetchHN(keyword) {
+    const since = Math.floor(Date.now() / 1000) - 3 * 86400;
+    const build = (recencyFilter) =>
+      `${HN}?query=${encodeURIComponent(keyword)}&tags=story` +
+      (recencyFilter ? `&numericFilters=created_at_i>${since}` : '') +
+      `&hitsPerPage=8`;
+    try {
+      let res = await fetch(build(true));
+      let data = res.ok ? await res.json() : { hits: [] };
+      if (!data.hits || !data.hits.length) { // widen if last 3d is empty
+        res = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(keyword)}&tags=story&hitsPerPage=6`);
+        data = res.ok ? await res.json() : { hits: [] };
+      }
+      return (data.hits || []).filter((h) => h.title).slice(0, 6).map((h) => ({
+        title: h.title,
+        url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+        points: h.points || 0,
+        comments: h.num_comments || 0,
+        date: (h.created_at_i || 0) * 1000,
+      }));
+    } catch { return []; }
+  }
+
+  /* ---------- Wikipedia: 30-day attention trend ---------- */
+  function ymd(d) { return d.toISOString().slice(0, 10).replace(/-/g, ''); }
+  async function fetchWikiTrend(keyword) {
+    try {
+      const sres = await fetch(`${WIKI_SEARCH}?action=opensearch&search=${encodeURIComponent(keyword)}&limit=1&namespace=0&format=json&origin=*`);
+      if (!sres.ok) return null;
+      const s = await sres.json();
+      const title = (s[1] || [])[0];
+      const pageUrl = (s[3] || [])[0];
+      if (!title) return null;
+
+      const end = new Date(Date.now() - 86400000);  // yesterday (today often incomplete)
+      const start = new Date(end.getTime() - 29 * 86400000);
+      const article = encodeURIComponent(title.replace(/ /g, '_'));
+      const vres = await fetch(`${WIKI_VIEWS}/${article}/daily/${ymd(start)}/${ymd(end)}`);
+      if (!vres.ok) return null;
+      const v = await vres.json();
+      const series = (v.items || []).map((i) => i.views);
+      if (series.length < 6) return null;
+
+      const half = Math.floor(series.length / 2);
+      const recent = series.slice(half).reduce((a, b) => a + b, 0);
+      const prior = series.slice(0, half).reduce((a, b) => a + b, 0) || 1;
+      const change = Math.round(((recent - prior) / prior) * 100);
+      return {
+        title, pageUrl, series, change,
+        total: series.reduce((a, b) => a + b, 0),
+      };
+    } catch { return null; }
+  }
+
+  /* ---------- helpers ---------- */
+  function relTime(ms) {
+    const diff = Date.now() - ms;
+    const h = Math.floor(diff / 3600000);
+    if (h < 1) return '剛剛';
+    if (h < 24) return `${h} 小時前`;
+    return `${Math.floor(h / 24)} 天前`;
+  }
+  function gdeltDate(s) {
+    // 20260525T120000Z -> ms
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(s || '');
+    if (!m) return Date.now();
+    return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  }
+
   /* ---------- Claude ---------- */
-  function buildPrompt(keyword, markets) {
+  function buildPrompt(keyword, sig) {
+    const { markets, news, buzz, wiki } = sig;
     const mkt = markets.length
       ? markets.map((m) =>
           `- "${m.question}" → ${m.outcome} ${m.prob != null ? Math.round(m.prob * 100) + '%' : 'n/a'}` +
           ` (成交量 $${Math.round(m.volume).toLocaleString()}` +
           `${m.endDate ? '，到期 ' + m.endDate.slice(0, 10) : ''})`
         ).join('\n')
-      : '（這個主題目前沒有直接相關的 Polymarket 市場，請依社群與趨勢訊號推論。）';
+      : '（無直接相關的 Polymarket 市場）';
+
+    const newsBlock = news.length
+      ? news.map((n) => `- ${n.title}（${n.domain}）`).join('\n')
+      : '（過去 3 天 GDELT 無相關新聞）';
+
+    const buzzBlock = buzz.length
+      ? buzz.map((b) => `- ${b.title}（👍${b.points} 💬${b.comments}）`).join('\n')
+      : '（Hacker News 無近期相關討論）';
+
+    const wikiBlock = wiki
+      ? `維基百科「${wiki.title}」過去 30 天瀏覽量 ${wiki.total.toLocaleString()}，` +
+        `近期相對前期${wiki.change >= 0 ? '上升' : '下降'} ${Math.abs(wiki.change)}%（關注度${wiki.change >= 10 ? '升溫' : wiki.change <= -10 ? '降溫' : '持平'}）。`
+      : '（無維基百科關注度資料）';
 
     return `關鍵詞：「${keyword}」
 
-來自 Polymarket 預測市場的即時數據：
+【Polymarket 預測市場即時賠率】
 ${mkt}
 
-請以一位敏銳的 futurist 角色，整合「預測市場機率」「社群與文化訊號（Reddit、論壇、社群媒體）」「新聞與搜尋趨勢」，推演這個主題在未來 18 個月的發展。
+【過去 3 天全球新聞 · GDELT】
+${newsBlock}
+
+【Hacker News 社群討論】
+${buzzBlock}
+
+【Wikipedia 關注度趨勢】
+${wikiBlock}
+
+請以一位敏銳的 futurist 角色，整合上述「預測市場機率」「過去 3 天新聞事件」「社群討論熱度」「關注度趨勢」，並善用你的 web search 工具查證或補充最新發展，推演這個主題在未來 18 個月如何展開。drivers 與 rationale 請盡量引用上述真實數據或你查到的事實。
 
 務必只回傳符合下列結構的有效 JSON（不要 markdown、不要程式碼框、不要多餘文字），全部欄位以繁體中文撰寫：
 {
@@ -215,7 +351,17 @@ ${mkt}
     throw new Error('無法解析神諭回傳的格式');
   }
 
-  async function askClaude(keyword, markets) {
+  async function askClaude(keyword, sig) {
+    const body = {
+      model: getModel(),
+      max_tokens: 3000,
+      system: '你是一位頂尖的未來學家（futurist），擅長把預測市場數據、社群訊號與趨勢轉化為具體、可信、富洞察力的未來情境。語氣冷靜、精準、帶一點神諭的詩意。你的最終回覆必須「只」包含使用者要求的 JSON 物件，不要任何前後說明文字。',
+      messages: [{ role: 'user', content: buildPrompt(keyword, sig) }],
+    };
+    if (getWebSearch()) {
+      body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }];
+    }
+
     const res = await fetch(ANTHROPIC, {
       method: 'POST',
       headers: {
@@ -224,12 +370,7 @@ ${mkt}
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body: JSON.stringify({
-        model: getModel(),
-        max_tokens: 2000,
-        system: '你是一位頂尖的未來學家（futurist），擅長把預測市場數據、社群訊號與趨勢轉化為具體、可信、富洞察力的未來情境。語氣冷靜、精準、帶一點神諭的詩意。',
-        messages: [{ role: 'user', content: buildPrompt(keyword, markets) }],
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -239,14 +380,27 @@ ${mkt}
       throw new Error(`Claude API 錯誤 ${res.status}${detail ? '：' + detail : ''}`);
     }
     const data = await res.json();
-    const text = (data.content || []).map((b) => b.text || '').join('');
-    return extractJSON(text);
+    const blocks = data.content || [];
+    const text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('');
+
+    // collect web-search citations, if any
+    const sources = [];
+    blocks.forEach((b) => {
+      (b.citations || []).forEach((c) => {
+        if (c.url && !sources.some((s) => s.url === c.url)) {
+          sources.push({ url: c.url, title: c.title || c.url });
+        }
+      });
+    });
+
+    return { result: extractJSON(text), sources };
   }
 
   /* ---------- rendering ---------- */
   const LIKE_LABEL = { probable: '最可能', plausible: '合理', possible: '有可能' };
 
-  function render(data, markets) {
+  function render(data, sig, sources) {
+    const { markets, news, buzz, wiki } = sig;
     el.resultTopic.textContent = (data.topic || '').toUpperCase() || 'FORESIGHT';
     el.resultSummary.textContent = data.summary || '';
 
@@ -287,6 +441,40 @@ ${mkt}
       el.wildcardBox.hidden = false;
     } else { el.wildcardBox.hidden = true; }
 
+    // GDELT news (last 3 days)
+    if (news.length) {
+      el.newsList.innerHTML = news.map((n) => `
+        <a class="ev-item" href="${escapeAttr(n.url)}" target="_blank" rel="noopener">
+          <span class="ev-item-title">${escapeHtml(n.title)}</span>
+          <span class="ev-meta"><b>${escapeHtml(n.domain || '')}</b> · ${relTime(gdeltDate(n.date))}</span>
+        </a>`).join('');
+      el.newsCard.hidden = false;
+    } else { el.newsCard.hidden = true; }
+
+    // Hacker News discussion
+    if (buzz.length) {
+      el.buzzList.innerHTML = buzz.map((b) => `
+        <a class="ev-item" href="${escapeAttr(b.url)}" target="_blank" rel="noopener">
+          <span class="ev-item-title">${escapeHtml(b.title)}</span>
+          <span class="ev-meta"><b>👍 ${b.points}</b> · 💬 ${b.comments} · ${relTime(b.date)}</span>
+        </a>`).join('');
+      el.buzzCard.hidden = false;
+    } else { el.buzzCard.hidden = true; }
+
+    // Wikipedia attention trend
+    if (wiki) {
+      const cls = wiki.change >= 10 ? 'wiki-trend-up' : wiki.change <= -10 ? 'wiki-trend-down' : 'wiki-trend-flat';
+      const sign = wiki.change >= 0 ? '▲ +' : '▼ ';
+      el.wikiBody.innerHTML = `
+        <div class="wiki-headline">
+          <b>${wiki.total.toLocaleString()}</b> 次瀏覽 / 30 天
+        </div>
+        <div class="${cls}">${sign}${Math.abs(wiki.change)}% 近期關注度</div>
+        ${sparkline(wiki.series)}
+        <a class="ev-meta" href="${escapeAttr(wiki.pageUrl || '#')}" target="_blank" rel="noopener">${escapeHtml(wiki.title)} →</a>`;
+      el.wikiCard.hidden = false;
+    } else { el.wikiCard.hidden = true; }
+
     // market source
     if (markets.length) {
       el.marketList.innerHTML = '';
@@ -301,7 +489,31 @@ ${mkt}
       });
       el.marketSource.hidden = false;
     } else { el.marketSource.hidden = true; }
+
+    // Claude web-search sources
+    if (sources && sources.length) {
+      el.claudeSources.innerHTML = '🔎 Claude 查證來源： ' + sources.slice(0, 8).map((s) =>
+        `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a>`).join(' · ');
+      el.claudeSources.hidden = false;
+    } else { el.claudeSources.hidden = true; }
   }
+
+  function sparkline(series) {
+    if (!series || series.length < 2) return '';
+    const w = 220, h = 44, max = Math.max(...series), min = Math.min(...series);
+    const span = max - min || 1;
+    const pts = series.map((v, i) => {
+      const x = (i / (series.length - 1)) * w;
+      const y = h - 4 - ((v - min) / span) * (h - 8);
+      return [x, y];
+    });
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const area = `M0,${h} ` + pts.map((p) => `L${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') + ` L${w},${h} Z`;
+    return `<svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+      <path class="spark-area" d="${area}"/><path d="${line}"/></svg>`;
+  }
+
+  function escapeAttr(s) { return escapeHtml(s).replace(/`/g, '&#96;'); }
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) =>
@@ -352,14 +564,20 @@ ${mkt}
     showOverlay();
     const startedAt = Date.now();
     try {
-      const markets = await fetchMarkets(keyword);
-      const data = await askClaude(keyword, markets);
+      const [markets, news, buzz, wiki] = await Promise.all([
+        fetchMarkets(keyword),
+        fetchGdelt(keyword),
+        fetchHN(keyword),
+        fetchWikiTrend(keyword),
+      ]);
+      const sig = { markets, news, buzz, wiki };
+      const { result, sources } = await askClaude(keyword, sig);
 
       // keep the oracle on screen for at least the full ritual
       const elapsed = Date.now() - startedAt;
       if (elapsed < 3200) await new Promise((r) => setTimeout(r, 3200 - elapsed));
 
-      render(data, markets);
+      render(result, sig, sources);
       hideOverlay();
       el.stageInput.hidden = true;
       el.stageResults.hidden = false;
