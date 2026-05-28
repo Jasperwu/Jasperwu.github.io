@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="An interactive oracle that reads prediction markets and social signals to foresee the next 18 months.">
+  <title>Foresight Oracle &middot; 預見未來</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <link href="css/oracle.css" rel="stylesheet">
+</head>
+
+<body>
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <a class="brand" href="index.html">
+      <span class="brand-mark">◇</span> Foresight Oracle
+    </a>
+    <button class="settings-btn" id="openSettings" aria-label="設定 API 金鑰">
+      <span class="gear">⚙</span> 設定金鑰
+    </button>
+  </header>
+
+  <!-- ACT 1 — Input -->
+  <main class="stage" id="stage-input">
+    <div class="input-wrap">
+      <p class="eyebrow">PREDICTION MARKETS · SOCIAL SIGNALS · FUTURIST AI</p>
+      <h1 class="display">窺探<span class="accent">未來</span>的可能</h1>
+      <p class="lede">
+        傳統的未來框架太慢，跟不上 AI 時代。<br>
+        輸入一個關鍵詞，神諭會即時讀取 <strong>Polymarket 預測市場</strong>與社群訊號，
+        以 futurist 的視角，推演接下來 <strong>18 個月</strong>最可能展開的未來。
+      </p>
+
+      <form class="ask" id="askForm">
+        <input class="ask-input" id="keyword" type="text" autocomplete="off"
+               placeholder="例如：AI agents、台積電、比特幣、太空旅行…" />
+        <button class="ask-btn" type="submit">
+          開始預言 <span class="arrow">→</span>
+        </button>
+      </form>
+
+      <div class="chips" id="suggestChips">
+        <button class="chip" type="button">AI agents</button>
+        <button class="chip" type="button">Bitcoin</button>
+        <button class="chip" type="button">台灣半導體</button>
+        <button class="chip" type="button">humanoid robots</button>
+        <button class="chip" type="button">space travel</button>
+      </div>
+
+      <p class="byok-note" id="byokNote">
+        尚未設定金鑰 — 點右上角「設定金鑰」貼上你的 Anthropic API key（只存在本機瀏覽器）。
+      </p>
+    </div>
+  </main>
+
+  <!-- ACT 2 — Oracle transition -->
+  <div class="oracle-overlay" id="oracleOverlay" aria-hidden="true">
+    <div class="orb-scene">
+      <div class="orb">
+        <div class="orb-swirl"></div>
+        <div class="orb-glaze"></div>
+        <div class="orb-core"></div>
+      </div>
+      <div class="orb-base"></div>
+      <div class="particles" id="particles"></div>
+    </div>
+    <p class="oracle-status" id="oracleStatus">正在召喚神諭…</p>
+    <p class="oracle-sub" id="oracleSub"></p>
+  </div>
+
+  <!-- ACT 3 — Futures cone -->
+  <section class="stage results" id="stage-results" hidden>
+    <div class="results-head">
+      <p class="eyebrow" id="resultTopic">FORESIGHT</p>
+      <h2 class="results-title" id="resultSummary">—</h2>
+      <button class="reset-btn" id="resetBtn">↺ 重新預言</button>
+    </div>
+
+    <!-- The cone of futures -->
+    <div class="cone-wrap">
+      <svg class="cone" viewBox="0 0 1000 420" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <defs>
+          <linearGradient id="gPossible" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#CC785C" stop-opacity="0"/>
+            <stop offset="1" stop-color="#CC785C" stop-opacity="0.10"/>
+          </linearGradient>
+          <linearGradient id="gPlausible" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#CC785C" stop-opacity="0"/>
+            <stop offset="1" stop-color="#CC785C" stop-opacity="0.22"/>
+          </linearGradient>
+          <linearGradient id="gProbable" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#CC785C" stop-opacity="0.10"/>
+            <stop offset="1" stop-color="#CC785C" stop-opacity="0.40"/>
+          </linearGradient>
+        </defs>
+
+        <!-- possible (outer) -->
+        <path class="band band-possible" d="M60,210 L960,30 L960,390 Z" fill="url(#gPossible)"/>
+        <!-- plausible (mid) -->
+        <path class="band band-plausible" d="M60,210 L960,110 L960,310 Z" fill="url(#gPlausible)"/>
+        <!-- probable (inner) -->
+        <path class="band band-probable" d="M60,210 L960,165 L960,255 Z" fill="url(#gProbable)"/>
+
+        <!-- horizon gridlines -->
+        <line class="grid" x1="360" y1="40" x2="360" y2="380"/>
+        <line class="grid" x1="660" y1="40" x2="660" y2="380"/>
+
+        <!-- apex / NOW -->
+        <circle class="now-glow" cx="60" cy="210" r="26"/>
+        <circle class="now-dot" cx="60" cy="210" r="7"/>
+        <text class="now-label" x="60" y="250">現在</text>
+
+        <text class="axis-label" x="210" y="405">　</text>
+        <text class="band-label" x="950" y="180" text-anchor="end">最可能 Probable</text>
+        <text class="band-label" x="950" y="100" text-anchor="end">合理 Plausible</text>
+        <text class="band-label" x="950" y="48"  text-anchor="end">有可能 Possible</text>
+      </svg>
+    </div>
+
+    <!-- signals strip -->
+    <div class="signals" id="signalsStrip"></div>
+
+    <!-- horizon cards -->
+    <div class="horizons" id="horizons"></div>
+
+    <!-- wildcard -->
+    <div class="wildcard" id="wildcardBox" hidden>
+      <span class="wildcard-tag">⚡ Wildcard</span>
+      <p id="wildcardText"></p>
+    </div>
+
+    <!-- market source -->
+    <div class="market-source" id="marketSource" hidden>
+      <p class="market-source-title">📊 即時佐證 · Polymarket 預測市場</p>
+      <div class="market-list" id="marketList"></div>
+    </div>
+  </section>
+
+  <!-- Settings modal -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">設定 Anthropic API 金鑰</h3>
+      <p class="modal-note">
+        金鑰只會存在<strong>你這台瀏覽器</strong>的 localStorage，不會上傳、不會進入程式碼。
+        到 <span class="mono">console.anthropic.com → API Keys</span> 取得 <span class="mono">sk-ant-…</span>。
+      </p>
+      <input class="modal-input mono" id="apiKeyInput" type="password" placeholder="sk-ant-api03-…" />
+      <label class="model-row">
+        模型
+        <select id="modelSelect" class="model-select">
+          <option value="claude-sonnet-4-6" selected>Claude Sonnet 4.6（推薦 · 快又準）</option>
+          <option value="claude-opus-4-7">Claude Opus 4.7（最強 · 較貴）</option>
+          <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5（最便宜 · 最快）</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="clearKey">清除金鑰</button>
+        <button class="btn-solid" id="saveKey">儲存</button>
+      </div>
+      <p class="modal-warn">⚠️ 純前端 demo：金鑰會出現在瀏覽器。請用可隨時撤銷的測試金鑰，勿在公開場合使用正式金鑰。</p>
+    </div>
+  </div>
+
+  <script src="js/oracle.js"></script>
+</body>
+
+</html>
